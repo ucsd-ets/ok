@@ -219,6 +219,45 @@ class EnrollmentSchema(APISchema):
         'courses': fields.List(fields.Nested(ParticipationSchema.get_fields))
     }
 
+    # pj, ucsd-ets
+    # fields we recieve from POST        
+    post_fields = {
+        'email': fields.String,
+        'key': fields.String,
+        'course': fields.Nested(CourseSchema.get_fields),
+        'participation': fields.Nested(ParticipationSchema.get_fields),
+    }
+
+    # fields we supply in POST
+    def __init__(self):
+        APISchema.__init__(self)
+        self.parser.add_argument('course_name', type=str, required=True,
+                                 help='Course name')
+        self.parser.add_argument('email', type=str, required=True,
+                                 help='User email')
+        self.parser.add_argument('name', type=str, required=True,
+                                 help='User name')
+        self.parser.add_argument('sid', type=str, required=True,
+                                 help='Secondary ID, e.g., username')
+        self.parser.add_argument('course_login', type=str, required=True,
+                                 help='Course ID')
+        self.parser.add_argument('section', type=str, required=True,
+                                 help='Section')
+        self.parser.add_argument('role', type=str, required=True,
+                                 help='Role [Student, Instructor, Teaching Assistant')
+        
+    def enroll_user(self, user):
+        args = self.parse_args() # these are define above in self.parse.add_argument stmts    
+        # TODO: get cid from course name
+        course = models.Course.by_name(args.course_name)
+        if course is None:
+            restful.abort(404)
+        if not models.Course.can(course, user, 'staff'):
+            restful.abort(403)
+        cid = course.id
+        return Enrollment.enroll_from_api(cid,args)
+    # end pj, ucsd-ets
+
 class FileSchema(APISchema):
     get_fields = {
         'id': HashIDField,
@@ -720,6 +759,7 @@ class ExportFinal(Resource):
                 'count': num_subms,
                 'has_more': has_more}
 
+'''
 class Enrollment(Resource):
     """ View what courses an email is enrolled in.
         Authenticated. Permissions: >= User or admins.
@@ -745,7 +785,72 @@ class Enrollment(Resource):
         if requester.is_admin:
             return True
         return resource == requester
+'''
+    
 
+class Enrollment(Resource):        
+    
+    """ View what courses an email is enrolled in.
+        Authenticated. Permissions: >= User or admins.
+        Used by: Ok Client Auth
+        
+        pj, ucsd-ets
+        Enroll a student in a course
+        Authenticated.  Permissions: >= Staff or admins
+        TODO: how do we set these differently for get/post?
+        end pj, ucsd-ets
+        
+        TODO: Make ok-client use user API instead.
+        Display course level enrollment here.
+    """
+    model = models.Enrollment
+    schema = EnrollmentSchema()
+    new = 0
+    updated = 0
+
+    @marshal_with(schema.get_fields)
+    def get(self, user, email):
+        target = models.User.lookup(email)
+        if not self.can('view', target, user):
+            restful.abort(403)
+        if target:
+            return {'courses': user.participations}
+        return {'courses': []}
+
+    
+    @marshal_with(schema.post_fields)
+    def post(self, user, key=None):
+        if key is not None:
+            restful.abort(405)
+        try:
+            new, updated = self.schema.enroll_user(user)
+        except ValueError as e:
+            data = {'enrollment': True}
+            if 'late' in str(e).lower():
+                data['late'] = True
+            return restful.abort(403, message=str(e), data=data)
+
+        #@TODO: return enrollment info, not just the new, created integers from model.Enrollment.create
+        #participation = enrollment.participation #can we get this out of enrollment or is it user.participations
+        #course = enrollment.course
+        return {
+            #'email': current_user.email,
+            #'key': encode_id(participation.id), # id of course enrollment
+            # what to use here? 'url': url_for('student.code', name=assignment.name, submit=backup.submit,
+            #               bid=backup.id, _external=True),
+            #'course': course, # contains id, active, display_name, etc
+            'new': new,
+            'updated': updated
+        }    
+        
+            
+    @staticmethod
+    def can(action, resource, requester):
+        if requester.is_admin:
+            return True
+        return resource == requester
+    
+    
 class CourseEnrollment(Resource):
     """ Information about all students in a course.
     Authenticated. Permissions: >= User or admins

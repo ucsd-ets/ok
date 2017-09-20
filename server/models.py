@@ -24,7 +24,11 @@ import datetime as dt
 import json
 import logging
 import shlex
-import urllib.parse
+#import urllib.parse
+try:
+    from urllib.parse import urlparse
+except ImportError:
+     from urlparse import urlparse
 import mimetypes
 
 from server.constants import (VALID_ROLES, STUDENT_ROLE, STAFF_ROLES, TIMEZONE,
@@ -894,6 +898,21 @@ class Enrollment(Model):
         }
         Enrollment.create(cid, [info], role)
 
+    # pj, ucsd-ets @TODO change form to POST info given
+    @staticmethod
+    @transaction
+    def enroll_from_api(cid, args):
+        role = args.role
+        info = {
+            'email': args.email,
+            'name': args.name,
+            'sid': args.sid,
+            'class_account': args.course_login,
+            'section': args.section,
+        }
+        return Enrollment.create(cid, [info], role)
+    # end pj, ucsd-ets
+    
     @transaction
     def unenroll(self):
         cache.delete_memoized(User.is_enrolled)
